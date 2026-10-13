@@ -1,0 +1,6 @@
+.DS_Store
+docs-zensical/site/
+docs-zensical/.venv/
+blog/_site/
+blog/.jekyll-cache/
+blog/.sass-cache/
