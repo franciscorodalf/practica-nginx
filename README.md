@@ -17,7 +17,7 @@ Un único contenedor NGINX publica el puerto 8080 del host. Según la cabecera `
 | --- | --- |
 | 0. Comprobar herramientas | Hecho |
 | 1. Repositorio, identidad y remoto | Hecho |
-| Fase 1. Documentación con Zensical | Pendiente |
+| Fase 1. Documentación con Zensical | En curso (copia y `site_url` hechos) |
 | Fase 2. Blog con Jekyll | Pendiente |
 
 ---
@@ -208,3 +208,159 @@ La rama `main` está publicada en el remoto y configurada para seguir a `origin/
 | Autoría de los commits | `git log --format='%an <%ae>' \| sort -u` | Una sola línea con esa identidad |
 | Remoto configurado | `git remote -v` | URL HTTPS de `franciscorodalf/practica-nginx` |
 | Rama sincronizada | `git status` | `Your branch is up to date with 'origin/main'` |
+
+---
+
+## Fase 1. Documentación con Zensical servida por NGINX
+
+### 1.1 Rama de trabajo
+
+**Qué:** trabajar la fase 1 en una rama propia, `fase-1`, y fusionarla en `main` cuando esté comprobada.
+
+**Cómo:**
+
+```bash
+git branch fase-1
+git checkout fase-1
+git branch
+```
+
+**Resultado:**
+
+```text
+* fase-1
+  main
+```
+
+### 1.2 Copiar el proyecto de documentación
+
+**Qué:** incorporar al repositorio el proyecto del profesor [monium/gitanddocs](https://github.com/monium/gitanddocs) en la carpeta `docs-zensical/`.
+
+**Cómo (primer intento):**
+
+```bash
+git clone --depth 1 https://github.com/monium/gitanddocs.git docs-zensical
+git add docs-zensical
+git commit -m "Clonar el proyecto de documentación gitanddocs" -m "Se clona el repositorio de informacion de zensical"
+```
+
+**Resultado:**
+
+```text
+warning: adding embedded git repository: docs-zensical
+hint: You've added another git repository inside your current repository.
+hint: Clones of the outer repository will not contain the contents of
+hint: the embedded repository and will not know how to obtain it.
+...
+[fase-1 a170229] Clonar el proyecto de documentación gitanddocs
+ 1 file changed, 1 insertion(+)
+ create mode 160000 docs-zensical
+```
+
+#### Problema: Git registró la carpeta como repositorio anidado
+
+**Síntoma:** al intentar añadir un archivo de la carpeta, Git lo rechazaba:
+
+```bash
+git add docs-zensical/zensical.toml
+```
+
+```text
+fatal: Pathspec 'docs-zensical/zensical.toml' is in submodule 'docs-zensical'
+```
+
+Además, `git status` solo mostraba `modified: docs-zensical (modified content)`, y ni `git add .` ni `git add docs-zensical` añadían nada.
+
+**Causa:** `git clone` deja dentro de `docs-zensical/` su propia carpeta `.git`. Al hacer `git add`, el repositorio exterior no guarda los archivos, sino solo un puntero a un commit del repositorio interior. Eso es lo que indica el modo `160000` del commit. Si se entregara así, la carpeta aparecería vacía en el repositorio remoto y en el ZIP.
+
+**Diagnóstico:** el cambio pendiente pertenecía al repositorio interior:
+
+```bash
+git -C docs-zensical status --short
+```
+
+```text
+ M zensical.toml
+```
+
+**Solución:** guardar aparte el `zensical.toml` modificado, quitar el puntero del índice, borrar el `.git` interior y rehacer el commit, que todavía no estaba subido:
+
+```bash
+cp docs-zensical/zensical.toml /tmp/zensical.toml
+git -C docs-zensical checkout -- zensical.toml
+git rm --cached docs-zensical
+rm -rf docs-zensical/.git
+git add docs-zensical
+git status
+```
+
+```text
+Changes to be committed:
+        deleted:    docs-zensical
+        new file:   docs-zensical/.github/ISSUE_TEMPLATE/bug_report.md
+        ...
+        new file:   docs-zensical/docs/index.md
+        new file:   docs-zensical/pyproject.toml
+        new file:   docs-zensical/uv.lock
+        new file:   docs-zensical/zensical.toml
+```
+
+```bash
+git commit --amend -m "Se clona el proyecto de documentación gitanddocs"
+```
+
+```text
+[fase-1 b26c5b5] Se clona el proyecto de documentación gitanddocs
+ 20 files changed, 1686 insertions(+)
+ create mode 100644 docs-zensical/.github/ISSUE_TEMPLATE/bug_report.md
+ ...
+ create mode 100644 docs-zensical/zensical.toml
+```
+
+Ahora el commit contiene 20 archivos reales (modo `100644`) en lugar del puntero `160000`.
+
+### 1.3 Ajustar `site_url`
+
+**Qué:** cambiar la URL pública del sitio en `docs-zensical/zensical.toml`. Zensical la usa para generar las URL canónicas y el sitemap, y el valor original apuntaba a `example.com`.
+
+**Cómo:** se recupera el archivo modificado que se había guardado aparte y se comprueba el cambio:
+
+```bash
+cp /tmp/zensical.toml docs-zensical/zensical.toml
+git diff
+```
+
+**Resultado:**
+
+```diff
+ [project]
+-site_url = "https://www.example.com/"
++site_url = "http://docs.localhost:8080/"
+ site_name = "Documentation"
+```
+
+```bash
+git add docs-zensical/zensical.toml
+git commit -m "Ajustar site_url a la URL servida por nginx"
+```
+
+```text
+[fase-1 8423053] Ajustar site_url a la URL servida por nginx
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+Comprobación de los dos commits:
+
+```bash
+git log --stat -2
+```
+
+```text
+commit 8423053 (HEAD -> fase-1)
+    Ajustar site_url a la URL servida por nginx
+ docs-zensical/zensical.toml | 2 +-
+
+commit b26c5b5
+    Se clona el proyecto de documentación gitanddocs
+ 20 files changed, 1686 insertions(+)
+```
