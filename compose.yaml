@@ -7,4 +7,5 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./docs-zensical/site:/usr/share/nginx/docs:ro
+      - ./blog/_site:/usr/share/nginx/blog:ro
     restart: unless-stopped
