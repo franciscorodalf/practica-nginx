@@ -1,108 +1,96 @@
 # Práctica NGINX: documentación con Zensical y blog con Jekyll
 
-Despliegue con **NGINX** (en un contenedor Docker) de dos sitios web estáticos servidos por el mismo servidor:
+Despliego dos sitios estáticos con un único NGINX en un contenedor Docker:
 
-- **Fase 1**: la documentación del proyecto [monium/gitanddocs](https://github.com/monium/gitanddocs), generada con Zensical.
-- **Fase 2**: un blog personal generado con Jekyll.
+- **Fase 1**: la documentación de [monium/gitanddocs](https://github.com/monium/gitanddocs), generada con Zensical, en `http://docs.localhost:8080`.
+- **Fase 2**: un blog de reseñas de perfumes, generado con Jekyll, en `http://blog.localhost:8080`.
 
 **Repositorio remoto:** https://github.com/franciscorodalf/practica-nginx
 
-## Arquitectura prevista
+**RA/CE evaluados:** RA6 (a, b, c, d, h) · RA1 (b, c, f, g, h, i)
 
-Un único contenedor NGINX publica el puerto 8080 del host. Según la cabecera `Host` de cada petición, NGINX elige un bloque `server` u otro y sirve los archivos de una carpeta distinta.
+## Índice
 
-## Estado de la práctica
+1. [Arquitectura](#arquitectura)
+2. [Cómo reproducirlo](#cómo-reproducirlo)
+3. [Paso 0. Entorno](#paso-0-entorno)
+4. [Paso 1. Repositorio y remoto](#paso-1-repositorio-y-remoto)
+5. [Fase 1. Documentación con Zensical](#fase-1-documentación-con-zensical)
+6. [Fase 2. Blog con Jekyll](#fase-2-blog-con-jekyll)
+7. [Problemas encontrados](#problemas-encontrados)
+8. [Avisos conocidos](#avisos-conocidos)
 
-| Paso | Estado |
-| --- | --- |
-| 0. Comprobar herramientas | Hecho |
-| 1. Repositorio, identidad y remoto | Hecho |
-| Fase 1. Documentación con Zensical | Terminado |
-| Fase 2. Blog con Jekyll | En curso (blog creado y configurado) |
+## Arquitectura
+
+NGINX escucha en el puerto 80 del contenedor, que Docker publica en el 8080 del Mac. Cada sitio tiene su propio bloque `server`, y NGINX elige uno u otro según la cabecera `Host` de la petición.
+
+```mermaid
+flowchart LR
+    C["Navegador o curl"] -->|"puerto 8080"| P["Docker: 8080 del host al 80 del contenedor"]
+    P --> N{"nginx: cabecera Host"}
+    N -->|"docs.localhost o host desconocido"| D["/usr/share/nginx/docs (docs-zensical/site)"]
+    N -->|"blog.localhost"| B["/usr/share/nginx/blog (blog/_site)"]
+```
+
+```text
+practica-nginx/
+├── compose.yaml
+├── nginx/conf.d/
+│   ├── docs.conf
+│   └── blog.conf
+├── docs-zensical/      copia de gitanddocs (site/ se genera y no se versiona)
+└── blog/               blog Jekyll (_site/ se genera y no se versiona)
+```
+
+## Cómo reproducirlo
+
+```bash
+cd docs-zensical && uv run zensical build --clean && cd ..
+docker run --rm -v "$PWD/blog":/srv -v jekyll-gems:/usr/local/bundle -w /srv ruby:3.3 \
+  sh -c "bundle install && bundle exec jekyll build"
+docker compose up -d
+```
+
+Después: `http://docs.localhost:8080` y `http://blog.localhost:8080`.
 
 ---
 
-## Paso 0. Comprobar las herramientas
+## Paso 0. Entorno
 
-**Qué:** comprobar que están instaladas las herramientas necesarias: Docker y Docker Compose para ejecutar NGINX en un contenedor, Git para el control de versiones y `uv` para generar la documentación de Zensical.
-
-**Cómo:**
+Compruebo que tengo Docker (para NGINX y Jekyll), Git y `uv` (para Zensical):
 
 ```bash
-docker --version
-docker compose version
-git --version
-uv --version
+docker --version && docker compose version && git --version && uv --version
+docker run --rm hello-world
 ```
-
-**Resultado:**
 
 ```text
 Docker version 29.7.2, build a7dcaa6
 Docker Compose version v5.4.0
 git version 2.54.0 (Apple Git-157)
 uv 0.11.26 (396ef7ce4 2026-06-30 aarch64-apple-darwin)
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
 ```
 
-Docker descarga la imagen, crea el contenedor y muestra el mensaje, así que el cliente y el daemon funcionan. La arquitectura es Mac con Apple Silicon.
+La primera vez `hello-world` falló porque Docker Desktop estaba cerrado ([problema 1](#1-docker-desktop-cerrado)).
 
-### Problema: el daemon de Docker no estaba en marcha
+## Paso 1. Repositorio y remoto
 
-La primera vez, `docker run` falló:
-
-```text
-failed to connect to the docker API at unix:///Users/fran/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/fran/.docker/run/docker.sock: connect: no such file or directory
-```
-
-**Causa:** Esto pasa porque aunque escribiendo en la terminal `docker --version` funciona aunque Docker Desktop esté cerrado, porque solo consulta el cliente. En cambio, `docker run` necesita el daemon, que se comunica por el socket `docker.sock`, y ese socket solo existe con Docker Desktop abierto.
-
-**Solución:** abrir Docker Desktop, esperar a que arranque y repetir el comando.
-
-## Paso 1. Repositorio, identidad de Git y remoto
-
-### 1.1 Crear el repositorio
-
-**Qué:** crear el proyecto en su propia carpeta, con su propio repositorio Git y la rama principal `main`.
-
-**Cómo:**
+Creo el repositorio y configuro la identidad **en local** (sin `--global`), con el nombre y el correo del aula virtual:
 
 ```bash
-cd ~/Desktop/practica-nginx
 git init -b main
+git config user.name "Francisco Yariel Rodriguez Alfonso"
+git config user.email "francuban1278@icloud.com"
 ```
-
-**Resultado:**
 
 ```text
 Initialized empty Git repository in /Users/fran/Desktop/practica-nginx/.git/
 ```
 
-### 1.2 Configurar la identidad
-
-**Qué:** configurar el nombre y el correo del autor de los commits. Se hace **en local** (sin `--global`) porque solo quiero que afecte a este repositorio y tambien deben coincidir con los datos del aula virtual.
-
-**Cómo:**
-
-```bash
-git config user.name "Francisco Yariel Rodriguez Alfonso"
-git config user.email "francuban1278@icloud.com"
-git config user.name && git config user.email
-```
-
-**Resultado:**
-
-```text
-Francisco Yariel Rodriguez Alfonso
-francuban1278@icloud.com
-```
-
-**Problema:** en el primer intento se coló un carácter `´` al final del nombre (`Francisco Yariel Rodriguez Alfonso´`). Se detectó al mostrar la configuración y se corrigió volviendo a ejecutar `git config user.name` con el nombre correcto. Si no se hubiera corregido, la autoría de los commits no coincidiría con el aula virtual.
-
-### 1.3 README y .gitignore
-
-**Qué:** crear un `README.md` inicial y un `.gitignore` que excluya los sitios generados, porque se regeneran al compilar y no deben versionarse.
-
-Contenido de `.gitignore`:
+Añado un `.gitignore` para no versionar lo que se regenera al compilar:
 
 ```text
 .DS_Store
@@ -113,305 +101,67 @@ blog/.jekyll-cache/
 blog/.sass-cache/
 ```
 
-**Cómo:**
+Conecto el repositorio con GitHub por HTTPS (por SSH falló: [problema 2](#2-github-rechaza-la-conexión-ssh)) y subo `main`:
 
 ```bash
-git add .
-git commit -m "Inicializar practica-nginx" -m "Se crea el repositorio, un README inicial y un .gitignore."
-```
-
-**Resultado:**
-
-```text
-[main (root-commit) f907c8b] Inicializar practica-nginx
- 2 files changed, 7 insertions(+)
- create mode 100644 .gitignore
- create mode 100644 README.md
-```
-
-### 1.4 Conectar con GitHub y subir la rama
-
-**Qué:** enlazar el repositorio local con el remoto de GitHub (creado vacío, sin README ni licencia) y subir `main`.
-
-**Cómo (primer intento, por SSH):**
-
-```bash
-git remote add origin git@github.com:franciscorodalf/practica-nginx.git
-git push -u origin main
-```
-
-**Resultado:**
-
-```text
-git@github.com: Permission denied (publickey).
-fatal: Could not read from remote repository.
-
-Please make sure you have the correct access rights
-and the repository exists.
-```
-
-#### Problema: GitHub rechaza la conexión SSH
-
-**Diagnóstico:**
-
-```bash
-ssh -T git@github.com
-```
-
-```text
-git@github.com: Permission denied (publickey).
-```
-
-**Causa:** no hay ninguna clave SSH de este equipo registrada en la cuenta de GitHub, así que GitHub no puede autenticar la conexión.
-
-**Solución:** cambiar el remoto a HTTPS y autenticar Git con la CLI de GitHub (`gh`):
-
-```bash
-git remote set-url origin https://github.com/franciscorodalf/practica-nginx.git
-gh auth login
-```
-
-Opciones elegidas: `GitHub.com` → `HTTPS` → autenticar Git con las credenciales de GitHub → `Login with a web browser`.
-
-```text
-✓ Authentication complete.
-- gh config set -h github.com git_protocol https
-✓ Configured git protocol
-✓ Logged in as franciscorodalf
-```
-
-**Segundo intento:**
-
-```bash
+git remote add origin https://github.com/franciscorodalf/practica-nginx.git
 git push -u origin main
 ```
 
 ```text
-Enumerating objects: 4, done.
-Counting objects: 100% (4/4), done.
-Delta compression using up to 8 threads
-Compressing objects: 100% (3/3), done.
-Writing objects: 100% (4/4), 406 bytes | 406.00 KiB/s, done.
-Total 4 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
 To https://github.com/franciscorodalf/practica-nginx.git
  * [new branch]      main -> main
 branch 'main' set up to track 'origin/main'.
 ```
 
-La rama `main` está publicada en el remoto y configurada para seguir a `origin/main`.
-
-### Comprobaciones de este paso
-
-| Qué se comprueba | Comando | Resultado esperado |
-| --- | --- | --- |
-| Identidad local de Git | `git config user.name && git config user.email` | Nombre y correo del aula virtual |
-| Autoría de los commits | `git log --format='%an <%ae>' \| sort -u` | Una sola línea con esa identidad |
-| Remoto configurado | `git remote -v` | URL HTTPS de `franciscorodalf/practica-nginx` |
-| Rama sincronizada | `git status` | `Your branch is up to date with 'origin/main'` |
+Cada fase se desarrolla en su propia rama (`fase-1`, `fase-2`) y se fusiona en `main` con `git merge --no-ff`, para que el merge quede visible en el historial.
 
 ---
 
-## Fase 1. Documentación con Zensical servida por NGINX
+## Fase 1. Documentación con Zensical
 
-### 1.1 Rama de trabajo
+### 1.1 Copiar el proyecto y ajustar `site_url`
 
-**Qué:** trabajar la fase 1 en una rama propia, `fase-1`, y fusionarla en `main` cuando esté comprobada.
-
-**Cómo:**
+Copio gitanddocs en `docs-zensical/` **sin su carpeta `.git`** (la primera vez la dejé y Git lo trató como repositorio anidado: [problema 3](#3-repositorio-anidado-en-docs-zensical)).
 
 ```bash
-git branch fase-1
-git checkout fase-1
-git branch
-```
-
-**Resultado:**
-
-```text
-* fase-1
-  main
-```
-
-### 1.2 Copiar el proyecto de documentación
-
-**Qué:** incorporar al repositorio el proyecto del profesor [monium/gitanddocs](https://github.com/monium/gitanddocs) en la carpeta `docs-zensical/`.
-
-**Cómo (primer intento):**
-
-```bash
+git switch -c fase-1
 git clone --depth 1 https://github.com/monium/gitanddocs.git docs-zensical
-git add docs-zensical
-git commit -m "Clonar el proyecto de documentación gitanddocs" -m "Se clona el repositorio de informacion de zensical"
-```
-
-**Resultado:**
-
-```text
-warning: adding embedded git repository: docs-zensical
-hint: You've added another git repository inside your current repository.
-hint: Clones of the outer repository will not contain the contents of
-hint: the embedded repository and will not know how to obtain it.
-...
-[fase-1 a170229] Clonar el proyecto de documentación gitanddocs
- 1 file changed, 1 insertion(+)
- create mode 160000 docs-zensical
-```
-
-#### Problema: Git registró la carpeta como repositorio anidado
-
-**Síntoma:** al intentar añadir un archivo de la carpeta, Git lo rechazaba:
-
-```bash
-git add docs-zensical/zensical.toml
-```
-
-```text
-fatal: Pathspec 'docs-zensical/zensical.toml' is in submodule 'docs-zensical'
-```
-
-Además, `git status` solo mostraba `modified: docs-zensical (modified content)`, y ni `git add .` ni `git add docs-zensical` añadían nada.
-
-**Causa:** `git clone` deja dentro de `docs-zensical/` su propia carpeta `.git`. Al hacer `git add`, el repositorio exterior no guarda los archivos, sino solo un puntero a un commit del repositorio interior. Eso es lo que indica el modo `160000` del commit. Si se entregara así, la carpeta aparecería vacía en el repositorio remoto y en el ZIP.
-
-**Diagnóstico:** el cambio pendiente pertenecía al repositorio interior:
-
-```bash
-git -C docs-zensical status --short
-```
-
-```text
- M zensical.toml
-```
-
-**Solución:** guardar aparte el `zensical.toml` modificado, quitar el puntero del índice, borrar el `.git` interior y rehacer el commit, que todavía no estaba subido:
-
-```bash
-cp docs-zensical/zensical.toml /tmp/zensical.toml
-git -C docs-zensical checkout -- zensical.toml
-git rm --cached docs-zensical
 rm -rf docs-zensical/.git
-git add docs-zensical
-git status
 ```
 
-```text
-Changes to be committed:
-        deleted:    docs-zensical
-        new file:   docs-zensical/.github/ISSUE_TEMPLATE/bug_report.md
-        ...
-        new file:   docs-zensical/docs/index.md
-        new file:   docs-zensical/pyproject.toml
-        new file:   docs-zensical/uv.lock
-        new file:   docs-zensical/zensical.toml
-```
-
-```bash
-git commit --amend -m "Se clona el proyecto de documentación gitanddocs"
-```
-
-```text
-[fase-1 b26c5b5] Se clona el proyecto de documentación gitanddocs
- 20 files changed, 1686 insertions(+)
- create mode 100644 docs-zensical/.github/ISSUE_TEMPLATE/bug_report.md
- ...
- create mode 100644 docs-zensical/zensical.toml
-```
-
-Ahora el commit contiene 20 archivos reales (modo `100644`) en lugar del puntero `160000`.
-
-### 1.3 Ajustar `site_url`
-
-**Qué:** cambiar la URL pública del sitio en `docs-zensical/zensical.toml`. Zensical la usa para generar las URL canónicas y el sitemap, y el valor original apuntaba a `example.com`.
-
-**Cómo:** se recupera el archivo modificado que se había guardado aparte y se comprueba el cambio:
-
-```bash
-cp /tmp/zensical.toml docs-zensical/zensical.toml
-git diff
-```
-
-**Resultado:**
+En `docs-zensical/zensical.toml` cambio la URL pública, que Zensical usa para las URL canónicas y el sitemap:
 
 ```diff
- [project]
 -site_url = "https://www.example.com/"
 +site_url = "http://docs.localhost:8080/"
- site_name = "Documentation"
 ```
 
-```bash
-git add docs-zensical/zensical.toml
-git commit -m "Ajustar site_url a la URL servida por nginx"
-```
-
-```text
-[fase-1 8423053] Ajustar site_url a la URL servida por nginx
- 1 file changed, 1 insertion(+), 1 deletion(-)
-```
-
-Comprobación de los dos commits:
-
-```bash
-git log --stat -2
-```
-
-```text
-commit 8423053 (HEAD -> fase-1)
-    Ajustar site_url a la URL servida por nginx
- docs-zensical/zensical.toml | 2 +-
-
-commit b26c5b5
-    Se clona el proyecto de documentación gitanddocs
- 20 files changed, 1686 insertions(+)
-```
-
-### 1.4 Generar el sitio estático
-
-**Qué:** compilar la documentación de Markdown a HTML, CSS y JavaScript estáticos, que es lo que NGINX va a servir.
-
-**Cómo:**
+### 1.2 Generar el sitio
 
 ```bash
 cd docs-zensical
 uv run zensical build --clean
-ls site | head
-cd ..
+ls site
 ```
 
-**Resultado:**
-
 ```text
-Using CPython 3.14.3 interpreter at: /opt/homebrew/opt/python@3.14/bin/python3.14
 Creating virtual environment at: .venv
 Installed 11 packages in 311ms
 Build started
-Warning: anchor does not exist
-    ╭─[ index.md:22:25 ]
- 22 │ 4. [Instalar Zensical](#paso-3-añadir-la-dependencia-de-zensical)
-...
 4 issues found
 Build finished in 0.46s
 ```
 
 ```text
-404.html
-assets
-get-site
-index.html
-markdown
-search.json
-sitemap.xml
-tema-visual
-trabajando-con-git
+404.html  assets  get-site  index.html  markdown  search.json  sitemap.xml  tema-visual  trabajando-con-git
 ```
 
-`uv run` lee `pyproject.toml` y `.python-version`, crea el entorno virtual `.venv` e instala Zensical. El sitio queda en `docs-zensical/site/`, con `index.html` y `404.html`. Las carpetas `site/` y `.venv/` están en `.gitignore` porque se regeneran.
+`uv run` crea el entorno `.venv` e instala Zensical según `pyproject.toml`. Los 4 avisos son anclajes rotos del material original ([avisos conocidos](#avisos-conocidos)).
 
-### 1.5 Configuración de NGINX
+### 1.3 Configurar NGINX
 
-**Qué:** definir un bloque `server` que sirva la documentación.
-
-Archivo `nginx/conf.d/docs.conf`:
+`nginx/conf.d/docs.conf`:
 
 ```nginx
 server {
@@ -429,31 +179,12 @@ server {
 }
 ```
 
-| Directiva | Función |
-| --- | --- |
-| `listen 80 default_server` | Escucha en el puerto 80 del contenedor. Si llega un host que no coincide con ningún `server_name`, lo atiende este bloque |
-| `server_name` | Nombres de host que atiende, según la cabecera `Host` |
-| `root` | Carpeta base: la URI se añade a esta ruta |
-| `index` | Archivo que se sirve cuando se pide un directorio |
-| `try_files $uri $uri/ =404` | Busca el archivo, después el directorio con su `index` y, si no existe ninguno, responde 404 |
-| `error_page 404 /404.html` | Usa la página 404 generada por Zensical |
+- `default_server`: atiende cualquier petición cuyo `Host` no coincida con ningún `server_name`.
+- `root`: la URI se añade a esta ruta (`/markdown/` → `/usr/share/nginx/docs/markdown/`).
+- `try_files`: busca el archivo, luego el directorio con su `index.html` y, si no existe, devuelve 404.
+- `error_page`: usa la página 404 de Zensical en lugar de la de NGINX.
 
-```bash
-git add nginx/conf.d/docs.conf
-git commit -m "Configurar el server block de la documentación" -m "Añade docs.conf con un server que responde a docs.localhost y localhost"
-```
-
-```text
-[fase-1 b9a43b9] Configurar el server block de la documentación
- 1 file changed, 13 insertions(+)
- create mode 100644 nginx/conf.d/docs.conf
-```
-
-### 1.6 Levantar NGINX con Docker Compose
-
-**Qué:** ejecutar NGINX en un contenedor con la imagen oficial, publicar el puerto 8080 del Mac y montar la configuración y el sitio generado.
-
-Archivo `compose.yaml`:
+`compose.yaml`:
 
 ```yaml
 services:
@@ -468,141 +199,272 @@ services:
     restart: unless-stopped
 ```
 
-- `"8080:80"`: el puerto 8080 del host se redirige al 80 del contenedor. Por eso en el navegador se usa `:8080`, mientras que `listen` indica `80`.
-- El volumen de `conf.d` sustituye la carpeta de la imagen. Así se elimina el `default.conf` de serie y solo quedan los bloques `server` propios.
-- `:ro` monta en solo lectura, porque NGINX no necesita escribir en esas carpetas.
-
-**Cómo:**
+Montar `conf.d` sustituye la carpeta de la imagen, así que desaparece el `default.conf` de serie. `:ro` monta en solo lectura.
 
 ```bash
 docker compose up -d
-docker compose ps
 docker compose exec web nginx -t
 ```
 
-**Resultado:**
-
 ```text
- ✔ Image nginx:stable-alpine      Pulled
- ✔ Network practica-nginx_default Created
  ✔ Container practica-nginx       Started
-```
-
-```text
-NAME             IMAGE                 COMMAND                  SERVICE   CREATED         STATUS         PORTS
-practica-nginx   nginx:stable-alpine   "/docker-entrypoint.…"   web       6 seconds ago   Up 5 seconds   0.0.0.0:8080->80/tcp, [::]:8080->80/tcp
-```
-
-```text
 nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 nginx: configuration file /etc/nginx/nginx.conf test is successful
 ```
 
-```bash
-git add compose.yaml
-git commit -m "Levantar nginx en contenedor con Docker Compose" -m "Define el servicio web con la imagen oficial nginx:stable-alpine, publica el puerto 8080 del host en el 80 del contenedor y monta en solo lectura la configuración y el sitio generado."
-```
-
-```text
-[fase-1 eb4407d] Levantar nginx en contenedor con Docker Compose
- 1 file changed, 10 insertions(+)
- create mode 100644 compose.yaml
-```
-
-### 1.7 Comprobaciones
-
-**Qué:** verificar que NGINX sirve la documentación por los dos nombres de host, que devuelve 404 para recursos inexistentes y que registra las peticiones.
-
-**Cómo:**
+### 1.4 Comprobaciones
 
 ```bash
 curl -I http://localhost:8080/
 curl -I http://docs.localhost:8080/
 curl -I http://localhost:8080/no-existe
-curl -s http://docs.localhost:8080/ | grep -i "<title>"
-docker compose logs web | tail -n 5
+curl -s http://docs.localhost:8080/ | grep -i "<title>" | head -n 1
 ```
-
-**Resultado:**
 
 ```text
 HTTP/1.1 200 OK
-Server: nginx/1.30.5
-Content-Type: text/html
 Content-Length: 37507
 ETag: "6ace90e2-9283"
 
 HTTP/1.1 200 OK
-Server: nginx/1.30.5
-Content-Type: text/html
 Content-Length: 37507
 ETag: "6ace90e2-9283"
 
 HTTP/1.1 404 Not Found
-Server: nginx/1.30.5
-Content-Type: text/html
 Content-Length: 14342
-```
 
-```text
         <title>Get started - Documentation</title>
 ```
 
+- `localhost` y `docs.localhost` devuelven el mismo `ETag`: el mismo archivo, servido por el mismo bloque.
+- El 404 ocupa 14342 bytes porque es el `404.html` de Zensical; el de NGINX ocupa unos 150.
+
+Los logs registran las peticiones (`docker compose logs web`):
+
 ```text
-practica-nginx  | 192.168.65.1 - - [13/Oct/2026:20:17:22 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/8.7.1" "-"
-practica-nginx  | 192.168.65.1 - - [13/Oct/2026:20:17:22 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/8.7.1" "-"
-practica-nginx  | 192.168.65.1 - - [13/Oct/2026:20:17:22 +0000] "HEAD /no-existe HTTP/1.1" 404 0 "-" "curl/8.7.1" "-"
-practica-nginx  | 192.168.65.1 - - [13/Oct/2026:20:17:22 +0000] "GET / HTTP/1.1" 200 37507 "-" "curl/8.7.1" "-"
+192.168.65.1 - - [13/Oct/2026:20:17:22 +0000] "HEAD /no-existe HTTP/1.1" 404 0 "-" "curl/8.7.1" "-"
 ```
 
-**Interpretación:**
+`192.168.65.1` es la puerta de enlace de la máquina virtual de Docker Desktop, por donde llegan las peticiones del Mac.
 
-- `localhost` y `docs.localhost` devuelven el mismo `ETag`, es decir, el mismo archivo: los dos nombres están en el `server_name` del mismo bloque.
-- La respuesta 404 ocupa 14342 bytes. Es la página `404.html` de Zensical, servida por `error_page`; la página 404 propia de NGINX ocupa unos 150 bytes.
-- La IP `192.168.65.1` de los logs es la puerta de enlace de la máquina virtual de Docker Desktop, por la que pasan las peticiones del Mac al contenedor.
+---
 
-## Fase 2. Blog con Jekyll en el mismo NGINX
+## Fase 2. Blog con Jekyll
 
-### 2.1 Rama de trabajo
+### 2.1 Crear y configurar el blog
 
-**Qué:** trabajar la fase 2 en una rama propia creada desde `main`, que ya incluye la fase 1 fusionada.
-
-**Cómo:**
+Genero el blog dentro de un contenedor `ruby:3.3`, para no instalar Ruby en macOS. Las gemas (paquetes de Ruby) quedan en el volumen `jekyll-gems` y no se descargan en cada build.
 
 ```bash
-git switch main
 git switch -c fase-2
-git branch
-```
-
-**Resultado:**
-
-```text
-Already on 'main'
-Your branch is up to date with 'origin/main'.
-Switched to a new branch 'fase-2'
-```
-
-```text
-  fase-1
-* fase-2
-  main
-```
-
-### 2.2 Crear el blog con Jekyll
-
-**Qué:** generar el esqueleto de un blog con Jekyll sin instalar Ruby en macOS, usando un contenedor temporal con la imagen oficial `ruby:3.3`.
-
-**Cómo:**
-
-```bash
 docker run --rm -v "$PWD":/srv -v jekyll-gems:/usr/local/bundle -w /srv ruby:3.3 \
   sh -c "gem install jekyll bundler && jekyll new blog"
-ls -a blog
 ```
 
-| Opción | Función |
-| --- | --- |
-| `--rm` | Borra el contenedor al terminar; solo se necesita para ejecutar el comando |
-| `-v "$PWD":/srv` | Monta la carpeta del proyecto, así el blog se crea en el Mac |
-| `-v jekyll-gems:/usr/local/bundle` | Volumen con nombre donde quedan las gemas (paquetes de Ruby)
+```text
+Successfully installed jekyll-4.4.1
+30 gems installed
+  Bundler: Bundle complete! 7 Gemfile dependencies, 38 gems now installed.
+New jekyll site installed in /srv/blog.
+```
+
+En `blog/_config.yml` sustituyo los valores de ejemplo:
+
+```yaml
+title: Reviews de Perfumes
+email: franciscoyarielrodriguezalfons@gmail.com
+description: >-
+    Reseñas y apuntes sobre perfumes: familias olfativas, notas y recomendaciones.
+baseurl: ""
+url: "http://blog.localhost:8080"
+github_username:  franciscorodalf
+```
+
+`baseurl` queda vacío porque el blog se sirve desde la raíz de su propio host (`blog.localhost`), no desde una subruta como `/blog`.
+
+### 2.2 Entradas
+
+Borro el post de ejemplo y escribo dos entradas en `blog/_posts/`. El nombre empieza por la fecha y el archivo lleva un *front matter* en YAML:
+
+```markdown
+---
+layout: post
+title: "Notas de salida, corazón y fondo: la pirámide olfativa"
+date: 2026-10-15 17:00:00 +0100
+categories: guias
+---
+```
+
+La fecha no puede ser futura: Jekyll no publica esos posts. En el primer intento la carpeta se llamó `_post` y no se generó ninguna entrada ([problema 4](#4-carpeta-_post-y-commits-con-contenido-equivocado)).
+
+### 2.3 Generar el blog
+
+```bash
+docker run --rm -v "$PWD/blog":/srv -v jekyll-gems:/usr/local/bundle -w /srv ruby:3.3 \
+  sh -c "bundle install && bundle exec jekyll build"
+ls blog/_site
+ls -R blog/_site/guias
+```
+
+```text
+       Jekyll Feed: Generating feed for posts
+                    done in 0.234 seconds.
+```
+
+```text
+404.html  about  assets  feed.xml  guias  index.html
+
+blog/_site/guias/2026/10/14:
+familias-olfativas.html
+
+blog/_site/guias/2026/10/15:
+piramide-olfativa.html
+```
+
+### 2.4 Segundo bloque `server`
+
+`nginx/conf.d/blog.conf`:
+
+```nginx
+server {
+    listen 80;
+    server_name blog.localhost;
+
+    root  /usr/share/nginx/blog;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+}
+```
+
+Es igual que `docs.conf` salvo en tres cosas: no lleva `default_server` (solo puede haber uno por puerto), tiene su propio `server_name` y su propio `root`. NGINX carga los dos porque el `nginx.conf` de la imagen incluye `conf.d/*.conf`.
+
+En `compose.yaml` añado el volumen del blog:
+
+```yaml
+      - ./blog/_site:/usr/share/nginx/blog:ro
+```
+
+Un volumen nuevo no se aplica con `nginx -s reload`, así que recreo el contenedor:
+
+```bash
+docker compose up -d && docker compose exec web nginx -t
+docker compose exec web ls /usr/share/nginx/blog
+```
+
+```text
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+404.html    about       assets      feed.xml    guias       index.html
+```
+
+### 2.5 Comprobaciones
+
+```bash
+curl -s http://blog.localhost:8080/ | grep -i "<title>"
+curl -s http://docs.localhost:8080/ | grep -i "<title>" | head -n 1
+curl -s -H "Host: blog.localhost" http://localhost:8080/ | grep -i "<title>"
+curl -s -H "Host: cualquiera.local" http://localhost:8080/ | grep -i "<title>" | head -n 1
+curl -I http://blog.localhost:8080/guias/2026/10/15/piramide-olfativa.html
+curl -I http://blog.localhost:8080/no-existe
+```
+
+```text
+<title>Reviews de Perfumes | Reseñas y apuntes sobre perfumes: familias olfativas, notas y recomendaciones.</title>
+        <title>Get started - Documentation</title>
+<title>Reviews de Perfumes | Reseñas y apuntes sobre perfumes: familias olfativas, notas y recomendaciones.</title>
+        <title>Get started - Documentation</title>
+HTTP/1.1 200 OK
+HTTP/1.1 404 Not Found
+Content-Length: 4388
+```
+
+| Prueba | Resultado | Qué demuestra |
+| --- | --- | --- |
+| `blog.localhost` / `docs.localhost` | Cada uno su título | Cada host tiene su sitio |
+| `Host: blog.localhost` contra `localhost:8080` | Título del blog | NGINX elige el `server` por la cabecera `Host`, no por la IP ni el puerto |
+| `Host: cualquiera.local` | Título de la documentación | Un host desconocido cae en el `default_server` |
+| Post concreto | `200 OK` | Las rutas de los posts funcionan |
+| `/no-existe` en el blog | `404`, 4388 bytes | Es el `404.html` del blog, distinto del de la documentación (14342): cada sitio usa su página de error |
+
+También compruebo los dos sitios en el navegador: cargan los estilos y la portada del blog muestra las dos entradas.
+
+---
+
+## Problemas encontrados
+
+### 1. Docker Desktop cerrado
+
+```text
+failed to connect to the docker API at unix:///Users/fran/.docker/run/docker.sock; ... connect: no such file or directory
+```
+
+`docker --version` funciona aunque Docker Desktop esté cerrado porque solo consulta el cliente. `docker run` necesita el daemon, que escucha en `docker.sock`, y ese socket solo existe con Docker Desktop abierto. **Solución:** abrir Docker Desktop y repetir.
+
+### 2. GitHub rechaza la conexión SSH
+
+```text
+git@github.com: Permission denied (publickey).
+```
+
+`ssh -T git@github.com` dio el mismo error: el equipo no tiene ninguna clave SSH registrada en GitHub. **Solución:** cambiar el remoto a HTTPS y autenticar Git con la CLI de GitHub:
+
+```bash
+git remote set-url origin https://github.com/franciscorodalf/practica-nginx.git
+gh auth login
+```
+
+```text
+✓ Configured git protocol
+✓ Logged in as franciscorodalf
+```
+
+### 3. Repositorio anidado en `docs-zensical`
+
+Al hacer `git add docs-zensical` con el `.git` del clon dentro, Git avisó y guardó un puntero en lugar de los archivos:
+
+```text
+warning: adding embedded git repository: docs-zensical
+ create mode 160000 docs-zensical
+```
+
+El modo `160000` indica que el commit solo contiene una referencia a otro repositorio: en GitHub y en el ZIP la carpeta aparecería vacía. Por eso después fallaba `git add docs-zensical/zensical.toml` (`Pathspec ... is in submodule`). **Solución**, antes de subir la rama:
+
+```bash
+git rm --cached docs-zensical
+rm -rf docs-zensical/.git
+git add docs-zensical
+git commit --amend
+```
+
+```text
+ 20 files changed, 1686 insertions(+)
+ create mode 100644 docs-zensical/zensical.toml
+```
+
+### 4. Carpeta `_post` y commits con contenido equivocado
+
+Creé las entradas en `blog/_post/` en lugar de `blog/_posts/`, así que Jekyll no generó ningún post (`ls: blog/_site/guias: No such file or directory`). Además, como lancé `git add` y `git commit` seguidos, el `add` falló pero el commit se ejecutó igual y guardó otro cambio con el mensaje equivocado:
+
+```text
+fatal: pathspec 'blog/_posts/2026-10-14-familias-olfativas.md' did not match any files
+[fase-2 2f7eca4] Añadir entrada sobre familias olfativas
+ delete mode 100644 blog/_posts/2026-10-15-welcome-to-jekyll.markdown
+```
+
+**Solución:** la rama no estaba subida, así que deshice los dos commits sin perder archivos, renombré la carpeta y rehíce un commit por cambio, uniendo `add` y `commit` con `&&` para que el commit solo se ejecute si el `add` funciona:
+
+```bash
+git reset --soft 93a2809
+git restore --staged .
+mv blog/_post blog/_posts
+```
+
+## Avisos conocidos
+
+- **Zensical, `anchor does not exist` (4 avisos):** el índice de `docs/index.md` enlaza a anclajes con tildes (`#comandos-útiles`) que no coinciden con los que genera Zensical. Es material del profesor y no lo modifico; el build termina bien.
+- **Jekyll, `DEPRECATION WARNING` de Sass:** el tema `minima` 2.5.2 usa `@import`, `lighten()` y `darken()`, que Dart Sass marca como obsoletos. No afectan al resultado.
+- **`[DEPRECATED] Platform :mingw...` de Bundler:** se refiere a líneas del `Gemfile` que solo afectan a Windows.
