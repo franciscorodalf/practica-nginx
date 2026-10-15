@@ -17,8 +17,8 @@ Un único contenedor NGINX publica el puerto 8080 del host. Según la cabecera `
 | --- | --- |
 | 0. Comprobar herramientas | Hecho |
 | 1. Repositorio, identidad y remoto | Hecho |
-| Fase 1. Documentación con Zensical | En curso (copia y `site_url` hechos) |
-| Fase 2. Blog con Jekyll | Pendiente |
+| Fase 1. Documentación con Zensical | Terminado |
+| Fase 2. Blog con Jekyll | En curso (blog creado y configurado) |
 
 ---
 
@@ -560,3 +560,49 @@ practica-nginx  | 192.168.65.1 - - [13/Oct/2026:20:17:22 +0000] "GET / HTTP/1.1"
 - `localhost` y `docs.localhost` devuelven el mismo `ETag`, es decir, el mismo archivo: los dos nombres están en el `server_name` del mismo bloque.
 - La respuesta 404 ocupa 14342 bytes. Es la página `404.html` de Zensical, servida por `error_page`; la página 404 propia de NGINX ocupa unos 150 bytes.
 - La IP `192.168.65.1` de los logs es la puerta de enlace de la máquina virtual de Docker Desktop, por la que pasan las peticiones del Mac al contenedor.
+
+## Fase 2. Blog con Jekyll en el mismo NGINX
+
+### 2.1 Rama de trabajo
+
+**Qué:** trabajar la fase 2 en una rama propia creada desde `main`, que ya incluye la fase 1 fusionada.
+
+**Cómo:**
+
+```bash
+git switch main
+git switch -c fase-2
+git branch
+```
+
+**Resultado:**
+
+```text
+Already on 'main'
+Your branch is up to date with 'origin/main'.
+Switched to a new branch 'fase-2'
+```
+
+```text
+  fase-1
+* fase-2
+  main
+```
+
+### 2.2 Crear el blog con Jekyll
+
+**Qué:** generar el esqueleto de un blog con Jekyll sin instalar Ruby en macOS, usando un contenedor temporal con la imagen oficial `ruby:3.3`.
+
+**Cómo:**
+
+```bash
+docker run --rm -v "$PWD":/srv -v jekyll-gems:/usr/local/bundle -w /srv ruby:3.3 \
+  sh -c "gem install jekyll bundler && jekyll new blog"
+ls -a blog
+```
+
+| Opción | Función |
+| --- | --- |
+| `--rm` | Borra el contenedor al terminar; solo se necesita para ejecutar el comando |
+| `-v "$PWD":/srv` | Monta la carpeta del proyecto, así el blog se crea en el Mac |
+| `-v jekyll-gems:/usr/local/bundle` | Volumen con nombre donde quedan las gemas (paquetes de Ruby)
